@@ -1,5 +1,10 @@
-import "@/styles/globals.css";
+// This file is the new, corrected version.
+// It imports your Tailwind styles using the correct relative path.
 
-export default function App({ Component, pageProps }) {
+import '../styles/globals.css';
+
+function MyApp({ Component, pageProps }) {
   return <Component {...pageProps} />;
 }
+
+export default MyApp;
