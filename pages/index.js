@@ -1,19 +1,20 @@
 import { useState } from 'react';
 import Link from 'next/link';
 
-export default function Home() {
+// The page component now receives 'featuredBooks' as a prop
+export default function Home({ featuredBooks }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
+  // The 'results' state now starts with the featured books!
+  const [results, setResults] = useState(featuredBooks);
   const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
-
+  const [searched, setSearched] = useState(false); // To track if a search has been run
+  
   const searchBooks = async (e) => {
     e.preventDefault();
     if (!query) return;
     setLoading(true);
-    setSearched(true);
+    setSearched(true); // A search was performed
     
-    // Use our own API route to search
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
@@ -50,6 +51,11 @@ export default function Home() {
           </button>
         </div>
       </form>
+      
+      {/* Title for the book grid */}
+      <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">
+        {searched ? 'Search Results' : 'Featured Bestsellers'}
+      </h2>
 
       {/* Results Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
@@ -60,6 +66,7 @@ export default function Home() {
                 src={book.coverUrl}
                 alt={book.title}
                 className="w-full h-auto object-cover aspect-[2/3] rounded-lg shadow-md group-hover:shadow-xl transition-shadow"
+                onError={(e) => e.target.src = 'https://placehold.co/300x450?text=No+Cover'}
               />
               <h3 className="text-sm font-semibold mt-2 truncate">{book.title}</h3>
               <p className="text-xs text-gray-600 truncate">{book.author}</p>
@@ -73,4 +80,40 @@ export default function Home() {
       )}
     </div>
   );
+}
+
+// THIS IS THE NEW SECTION
+// This function runs on the SERVER to get featured books
+export async function getStaticProps() {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
+  const featuredQuery = "new york times bestsellers fiction";
+  let featuredBooks = [];
+
+  try {
+    const response = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(featuredQuery)}&maxResults=18&key=${apiKey}`
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      featuredBooks = (data.items || []).map(item => ({
+        id: item.id,
+        title: item.volumeInfo.title || 'Title not available',
+        author: item.volumeInfo.authors ? item.volumeInfo.authors.join(', ') : 'Unknown',
+        coverUrl: item.volumeInfo.imageLinks?.thumbnail || 'https://placehold.co/300x450?text=No+Cover',
+      }));
+    } else {
+      console.error("Failed to fetch featured books:", await response.text());
+    }
+  } catch (error) {
+    console.error("Error fetching featured books:", error.message);
+  }
+
+  // Send the featured books as a prop to the page
+  return {
+    props: {
+      featuredBooks,
+    },
+    revalidate: 3600, // Re-fetch featured books every hour
+  };
 }

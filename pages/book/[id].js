@@ -19,7 +19,6 @@ export default function BookPage({ book, staticReviews }) {
           <h1 className="text-3xl font-bold text-gray-900">{book.title}</h1>
           <h2 className="text-xl text-gray-600">{book.author}</h2>
           
-          {/* This is the official purchase link */}
           <a
             href={book.purchaseUrl}
             target="_blank"
@@ -31,7 +30,6 @@ export default function BookPage({ book, staticReviews }) {
           
           <div className="prose text-gray-700 max-w-none">
             <h3>Summary</h3>
-            {/* The summary is served as HTML, great for SEO! */}
             <p dangerouslySetInnerHTML={{ __html: book.description }} />
           </div>
         </div>
@@ -39,8 +37,6 @@ export default function BookPage({ book, staticReviews }) {
         {/* Right Column: Reviews */}
         <div className="md:col-span-2">
           <h3 className="text-2xl font-bold text-gray-800 mb-4">Community Reviews</h3>
-          
-          {/* This component displays the server-rendered reviews and then loads live updates */}
           <ReviewManager bookId={book.id} staticReviews={staticReviews} />
         </div>
       </div>
@@ -49,67 +45,75 @@ export default function BookPage({ book, staticReviews }) {
 }
 
 // This function runs on the SERVER
-// This is the core of your SEO strategy
 export async function getStaticProps(context) {
   const { id } = context.params;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
 
-  // 1. Fetch Book Details from Google API
-  const bookRes = await fetch(
-    `https://www.googleapis.com/books/v1/volumes/${id}?key=${apiKey}`
-  );
-  const bookData = await bookRes.json();
-  
-  if (!bookData || bookData.error) {
-    return { notFound: true }; // Show 404 page
-  }
+  try {
+    // 1. Fetch Book Details from Google API
+    const bookRes = await fetch(
+      `https://www.googleapis.com/books/v1/volumes/${id}?key=${apiKey}`
+    );
+    if (!bookRes.ok) {
+      throw new Error(`Google Books API failed with status: ${bookRes.status}`);
+    }
+    const bookData = await bookRes.json();
+    
+    if (!bookData || bookData.error) {
+      return { notFound: true }; // Show 404 page
+    }
 
-  const book = {
-    id: bookData.id,
-    title: bookData.volumeInfo.title,
-    author: bookData.volumeInfo.authors ? bookData.volumeInfo.authors.join(', ') : 'Unknown',
-    coverUrl: bookData.volumeInfo.imageLinks?.thumbnail || 'https://placehold.co/300x450?text=No+Cover',
-    description: bookData.volumeInfo.description || 'No summary available.',
-    purchaseUrl: bookData.volumeInfo.infoLink || '#',
-  };
-
-  // 2. Fetch Reviews from *our* Firebase Admin SDK
-  // This happens on the server, so search engines can read it!
-  const reviewsColPath = `/artifacts/${process.env.NEXT_PUBLIC_APP_ID}/public/data/reviews`;
-  const q = query(collection(adminDb, reviewsColPath), where("bookId", "==", id));
-  
-  const querySnapshot = await getDocs(q);
-  const staticReviews = querySnapshot.docs.map(doc => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      rating: data.rating,
-      text: data.text,
-      // Convert Firestore Timestamp to a serializable string
-      createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
-      userId: data.userId.substring(0, 8), // Show partial ID
+    const book = {
+      id: bookData.id,
+      title: bookData.volumeInfo.title || 'Title not available',
+      author: bookData.volumeInfo.authors ? bookData.volumeInfo.authors.join(', ') : 'Unknown',
+      coverUrl: bookData.volumeInfo.imageLinks?.thumbnail || 'https://placehold.co/300x450?text=No+Cover',
+      description: bookData.volumeInfo.description || 'No summary available.',
+      purchaseUrl: bookData.volumeInfo.infoLink || '#',
     };
-  }).sort((a, b) => {
-    // Sort null dates to the end
-    if (!a.createdAt) return 1;
-    if (!b.createdAt) return -1;
-    return new Date(b.createdAt) - new Date(a.createdAt); // Newest first
-  });
 
-  // 3. Send all this data as props to our page
-  return {
-    props: {
-      book,
-      staticReviews,
-    },
-    revalidate: 60, // Re-build this page in the background every 60 seconds
-  };
+    // 2. Fetch Reviews from *our* Firebase Admin SDK
+    const reviewsColPath = `/artifacts/${process.env.NEXT_PUBLIC_APP_ID}/public/data/reviews`;
+    const q = query(collection(adminDb, reviewsColPath), where("bookId", "==", id));
+    
+    const querySnapshot = await getDocs(q);
+    const staticReviews = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        rating: data.rating || 5,
+        text: data.text || '',
+        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+        // THIS IS THE NEW, SAFER CODE
+        // It checks if 'userId' exists before trying to slice it.
+        userId: data.userId ? data.userId.substring(0, 8) : 'Anonymous',
+      };
+    }).sort((a, b) => {
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // 3. Send all this data as props to our page
+    return {
+      props: {
+        book,
+        staticReviews,
+      },
+      revalidate: 60, // Re-build this page in the background every 60 seconds
+    };
+
+  } catch (error) {
+    console.error(`Error in getStaticProps for book [${id}]:`, error.message);
+    // This will show the 500 error page, which is what you are seeing.
+    // This is most likely caused by the environment variables being wrong.
+    return { props: { error: 'Failed to load book data.' }, revalidate: 10 };
+  }
 }
 
-// This function tells Next.js which pages to build
 export async function getStaticPaths() {
   return {
-    paths: [], // Don't build any pages at first
-    fallback: 'blocking', // When a user requests a new page, build it on-demand
+    paths: [],
+    fallback: 'blocking',
   };
 }
