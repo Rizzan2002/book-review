@@ -46,6 +46,15 @@ export default function BookPage({ book, staticReviews }) {
 
 // This function runs on the SERVER
 export async function getStaticProps(context) {
+  // --- NEW DEBUGGING CHECK ---
+  // This will fail first and give us a clearer error in the logs
+  if (!adminDb) {
+    const errorMsg = "CRITICAL: adminDb is not initialized in [id].js. This proves lib/firebase-admin.js failed, most likely due to missing Vercel environment variables.";
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+  // --- END NEW CHECK ---
+
   const { id } = context.params;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
 
