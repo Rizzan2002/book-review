@@ -1,13 +1,12 @@
-// --- THIS IS THE FIX ---
-// We now import the *function* instead of the variable
+// We *remove* the 'firebase/firestore' imports, as they are for the client
 import { getAdminDb } from '../../lib/firebase-admin';
-// --- END FIX ---
-
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import ReviewManager from '../../components/ReviewManager';
 
 // This is the individual book page
 export default function BookPage({ book, staticReviews }) {
+// ... (The rest of the component function is identical)
+// ... (No changes from line 8 to line 57)
+// ---
   if (!book) return <div>Book not found.</div>;
 
   return (
@@ -47,23 +46,18 @@ export default function BookPage({ book, staticReviews }) {
     </div>
   );
 }
+// ---
 
 // This function runs on the SERVER
 export async function getStaticProps(context) {
-  // --- THIS IS THE FIX ---
-  // We now *call* the function to get the db instance.
-  // This guarantees it's initialized.
+  // This part is correct, we get our admin db
   const adminDb = getAdminDb();
-  // --- END FIX ---
   
-  // We no longer need this check, the 'getAdminDb' function handles it
-  // if (!adminDb) { ... }
-
   const { id } = context.params;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
 
   try {
-    // 1. Fetch Book Details from Google API
+    // 1. Fetch Book Details (No change here)
     const bookRes = await fetch(
       `https://www.googleapis.com/books/v1/volumes/${id}?key=${apiKey}`
     );
@@ -86,18 +80,23 @@ export async function getStaticProps(context) {
     };
 
     // 2. Fetch Reviews from *our* Firebase Admin SDK
+    // --- THIS IS THE FIX ---
+    // We use the admin SDK's namespaced methods, not the client's modular functions
     const reviewsColPath = `/artifacts/${process.env.NEXT_PUBLIC_APP_ID}/public/data/reviews`;
     
-    // Now this 'adminDb' variable is guaranteed to be valid
-    const q = query(collection(adminDb, reviewsColPath), where("bookId", "==", id));
+    // This is the correct Admin SDK syntax
+    const reviewsRef = adminDb.collection(reviewsColPath);
+    const q = reviewsRef.where("bookId", "==", id);
+    const querySnapshot = await q.get(); // Use .get() not getDocs()
+    // --- END FIX ---
     
-    const querySnapshot = await getDocs(q);
     const staticReviews = querySnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
         rating: data.rating || 5,
         text: data.text || '',
+        // .toDate() is a method on the Admin SDK's Timestamp
         createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
         userId: data.userId ? data.userId.substring(0, 8) : 'Anonymous',
       };
@@ -118,6 +117,8 @@ export async function getStaticProps(context) {
 
   } catch (error) {
     console.error(`Error in getStaticProps for book [${id}]:`, error.message);
+    // Ensure you log the specific error
+    console.error(error.stack);
     return { props: { error: 'Failed to load book data.' }, revalidate: 10 };
   }
 }
