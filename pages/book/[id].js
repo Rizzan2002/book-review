@@ -1,4 +1,8 @@
-import { db as adminDb } from '../../lib/firebase-admin';
+// --- THIS IS THE FIX ---
+// We now import the *function* instead of the variable
+import { getAdminDb } from '../../lib/firebase-admin';
+// --- END FIX ---
+
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import ReviewManager from '../../components/ReviewManager';
 
@@ -46,14 +50,14 @@ export default function BookPage({ book, staticReviews }) {
 
 // This function runs on the SERVER
 export async function getStaticProps(context) {
-  // --- NEW DEBUGGING CHECK ---
-  // This will fail first and give us a clearer error in the logs
-  if (!adminDb) {
-    const errorMsg = "CRITICAL: adminDb is not initialized in [id].js. This proves lib/firebase-admin.js failed, most likely due to missing Vercel environment variables.";
-    console.error(errorMsg);
-    throw new Error(errorMsg);
-  }
-  // --- END NEW CHECK ---
+  // --- THIS IS THE FIX ---
+  // We now *call* the function to get the db instance.
+  // This guarantees it's initialized.
+  const adminDb = getAdminDb();
+  // --- END FIX ---
+  
+  // We no longer need this check, the 'getAdminDb' function handles it
+  // if (!adminDb) { ... }
 
   const { id } = context.params;
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_BOOKS_API_KEY;
@@ -83,6 +87,8 @@ export async function getStaticProps(context) {
 
     // 2. Fetch Reviews from *our* Firebase Admin SDK
     const reviewsColPath = `/artifacts/${process.env.NEXT_PUBLIC_APP_ID}/public/data/reviews`;
+    
+    // Now this 'adminDb' variable is guaranteed to be valid
     const q = query(collection(adminDb, reviewsColPath), where("bookId", "==", id));
     
     const querySnapshot = await getDocs(q);
@@ -93,8 +99,6 @@ export async function getStaticProps(context) {
         rating: data.rating || 5,
         text: data.text || '',
         createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
-        // THIS IS THE NEW, SAFER CODE
-        // It checks if 'userId' exists before trying to slice it.
         userId: data.userId ? data.userId.substring(0, 8) : 'Anonymous',
       };
     }).sort((a, b) => {
@@ -114,8 +118,6 @@ export async function getStaticProps(context) {
 
   } catch (error) {
     console.error(`Error in getStaticProps for book [${id}]:`, error.message);
-    // This will show the 500 error page, which is what you are seeing.
-    // This is most likely caused by the environment variables being wrong.
     return { props: { error: 'Failed to load book data.' }, revalidate: 10 };
   }
 }
